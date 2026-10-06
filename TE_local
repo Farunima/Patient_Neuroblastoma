@@ -1,0 +1,84 @@
+cat > scripts/TElocal_GSE181559_trimmed.sbatch <<'EOF'
+#!/bin/bash
+#SBATCH --job-name=NB97_TElocal_trim
+#SBATCH --partition=compute
+#SBATCH --time=12:00:00
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=24G
+#SBATCH --array=1-97%12
+#SBATCH --output=/data2/doucetohare_lab/farunim/Neuroblastoma/patient/GSE181559/logs/TElocal_trimmed_%A_%a.out
+#SBATCH --error=/data2/doucetohare_lab/farunim/Neuroblastoma/patient/GSE181559/logs/TElocal_trimmed_%A_%a.err
+
+set -euo pipefail
+
+BASE=/data2/doucetohare_lab/farunim/Neuroblastoma/patient/GSE181559
+
+BAMDIR=${BASE}/STAR_trimmed
+SAMPLES=${BASE}/SRR_Acc_List.txt
+OUTDIR=${BASE}/TE_analysis/TElocal
+
+GENE=/scratch2/farunim/AIM1/reference/gencode.v46.annotation.gtf
+TE=/scratch2/farunim/AIM1/reference/hg38_rmsk_TE.gtf.locInd
+
+mkdir -p "${OUTDIR}"
+mkdir -p "${BASE}/logs"
+
+sample=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "${SAMPLES}")
+
+BAM=${BAMDIR}/${sample}.Aligned.sortedByCoord.out.bam
+BAI=${BAM}.bai
+COUNTS=${OUTDIR}/${sample}.cntTable
+
+echo "============================================"
+echo "[INFO] Date: $(date)"
+echo "[INFO] Host: $(hostname)"
+echo "[INFO] Array task: ${SLURM_ARRAY_TASK_ID}"
+echo "[INFO] Sample: ${sample}"
+echo "[INFO] BAM: ${BAM}"
+echo "[INFO] GENE: ${GENE}"
+echo "[INFO] TE index: ${TE}"
+echo "============================================"
+
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate telocal_env
+
+echo "[INFO] TElocal executable:"
+which TElocal
+
+if [[ ! -s "${BAM}" ]]; then
+    echo "[ERROR] Missing or empty BAM: ${BAM}"
+    exit 1
+fi
+
+if [[ ! -s "${BAI}" ]]; then
+    echo "[ERROR] Missing BAM index: ${BAI}"
+    exit 1
+fi
+
+if [[ -s "${COUNTS}" ]]; then
+    echo "[SKIP] Existing count table found: ${COUNTS}"
+    exit 0
+fi
+
+cd "${OUTDIR}"
+
+TElocal \
+    --sortByPos \
+    --stranded no \
+    --mode multi \
+    -b "${BAM}" \
+    --GTF "${GENE}" \
+    --TE "${TE}" \
+    --project "${sample}"
+
+if [[ ! -s "${COUNTS}" ]]; then
+    echo "[ERROR] TElocal finished but no count table found: ${COUNTS}"
+    exit 1
+fi
+
+echo "============================================"
+echo "[DONE] ${sample}"
+echo "[DONE] $(date)"
+ls -lh "${COUNTS}"
+echo "============================================"
+EOF
