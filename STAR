@@ -1,0 +1,78 @@
+cat > scripts/STAR_GSE181559_trimmed.sbatch <<'EOF'
+#!/usr/bin/env bash
+#SBATCH --job-name=STAR_GSE181559_trim
+#SBATCH --partition=compute
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=48G
+#SBATCH --time=12:00:00
+#SBATCH --array=1-97%12
+#SBATCH --output=/data2/doucetohare_lab/farunim/Neuroblastoma/patient/GSE181559/logs/STAR_trimmed.%A_%a.out
+#SBATCH --error=/data2/doucetohare_lab/farunim/Neuroblastoma/patient/GSE181559/logs/STAR_trimmed.%A_%a.err
+
+set -euo pipefail
+
+module purge >/dev/null 2>&1 || true
+module load star/2.7.10a
+module load samtools/1.10
+
+BASE=/data2/doucetohare_lab/farunim/Neuroblastoma/patient/GSE181559
+FASTQ=${BASE}/trimmed_fastq
+SAMPLES=${BASE}/SRR_Acc_List.txt
+OUT=${BASE}/STAR_trimmed
+
+GENOME_DIR=/scratch2/farunim/AIM1/reference/star_index_2.7.10a
+
+sample=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "${SAMPLES}")
+
+R1=${FASTQ}/${sample}/${sample}_1.trimmed.fastq
+R2=${FASTQ}/${sample}/${sample}_2.trimmed.fastq
+
+BAM=${OUT}/${sample}.Aligned.sortedByCoord.out.bam
+
+echo "============================================"
+echo "[INFO] Date: $(date)"
+echo "[INFO] Host: $(hostname)"
+echo "[INFO] Array task: ${SLURM_ARRAY_TASK_ID}"
+echo "[INFO] Sample: ${sample}"
+echo "[INFO] R1: ${R1}"
+echo "[INFO] R2: ${R2}"
+echo "============================================"
+
+if [[ ! -s "${R1}" ]]; then
+    echo "[ERROR] Missing or empty R1: ${R1}"
+    exit 1
+fi
+
+if [[ ! -s "${R2}" ]]; then
+    echo "[ERROR] Missing or empty R2: ${R2}"
+    exit 1
+fi
+
+if [[ -s "${BAM}" && -s "${BAM}.bai" ]]; then
+    echo "[SKIP] BAM and index already exist for ${sample}"
+    exit 0
+fi
+
+STAR \
+  --runThreadN "${SLURM_CPUS_PER_TASK}" \
+  --genomeDir "${GENOME_DIR}" \
+  --readFilesIn "${R1}" "${R2}" \
+  --outFileNamePrefix "${OUT}/${sample}." \
+  --outSAMtype BAM SortedByCoordinate \
+  --outSAMattributes NH HI AS nM MD \
+  --twopassMode Basic \
+  --outFilterMultimapNmax 50 \
+  --winAnchorMultimapNmax 50 \
+  --chimSegmentMin 12 \
+  --chimJunctionOverhangMin 12 \
+  --limitBAMsortRAM 30000000000
+
+samtools index -@ "${SLURM_CPUS_PER_TASK}" "${BAM}"
+
+echo "============================================"
+echo "[DONE] ${sample}"
+echo "[DONE] $(date)"
+echo "============================================"
+EOF
